@@ -1,0 +1,45 @@
+# Outside-in check of outlink.my, every 5 minutes, from GitHub's servers (not the VPS).
+# If a check fails, the run fails and GitHub emails the repo owner: that's the alert. No secrets needed.
+# Scheduled runs can start a few minutes late when GitHub is busy.
+name: outlink uptime
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+    - cron: "17 3 1 * *"       # monthly keepalive (GitHub pauses schedules in repos idle for 60 days)
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  check:
+    if: github.event.schedule != '17 3 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check outlink.my (two tries, 30 s apart, before failing)
+        run: |
+          check() {
+            ok=1
+            # A real Outlink code must redirect to its page
+            out=$(curl -s -o /dev/null -m 15 -w '%{http_code} %{redirect_url}' https://outlink.my/q/demo4a2f)
+            case "$out" in 30[1278]\ https://outlink.my/*) ;; *) echo "::error::/q/demo4a2f -> $out"; ok=0 ;; esac
+            # Unknown code must land on a paused page (proves the redirect service + DB lookup)
+            out=$(curl -s -o /dev/null -m 15 -w '%{http_code} %{redirect_url}' https://outlink.my/q/zz-uptime-probe)
+            case "$out" in 30[1278]\ */paused) ;; *) echo "::error::/q/<unknown> -> $out"; ok=0 ;; esac
+            # QR dashboard and Outlink home
+            for u in https://outlink.my/qr/login https://outlink.my/; do
+              c=$(curl -s -o /dev/null -m 15 -w '%{http_code}' "$u"); [ "$c" = 200 ] || { echo "::error::$u -> HTTP $c"; ok=0; }
+            done
+            [ $ok = 1 ]
+          }
+          check && exit 0
+          sleep 30
+          check
+  keepalive:
+    if: github.event.schedule == '17 3 1 * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          date -u > .keepalive
+          git config user.name "uptime-keepalive"; git config user.email "actions@users.noreply.github.com"
+          git add .keepalive && git commit -m "keepalive" && git push
