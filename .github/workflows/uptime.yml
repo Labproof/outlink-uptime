@@ -7,6 +7,11 @@ on:
     - cron: "*/5 * * * *"
     - cron: "17 3 1 * *"       # monthly keepalive (GitHub pauses schedules in repos idle for 60 days)
   workflow_dispatch:
+    inputs:
+      drill:
+        description: "Fail on purpose, to test that the failure email arrives"
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
@@ -17,6 +22,10 @@ jobs:
     steps:
       - name: Check outlink.my (two tries, 30 s apart, before failing)
         run: |
+          if [ "${{ inputs.drill }}" = "true" ]; then
+            echo "::error::DRILL: deliberate failure to test the alert email. outlink.my itself was not checked."
+            exit 1
+          fi
           check() {
             ok=1
             # A real Outlink code must redirect to its page
